@@ -97,7 +97,7 @@ RunscPaGWAS <- RunscPagwas
 
 scpagwas_check_r <- function(verbose = TRUE) {
   check_r("sulab-wmu/scPagwas", dependencies = NA, verbose = verbose)
-  if (!scpagwas_namespace_available()) {
+  if (!is.function(scpagwas_find_runner(error = FALSE))) {
     log_message(
       "Failed to install or load {.pkg scPagwas}. Install it manually with {.code pak::pkg_install('sulab-wmu/scPagwas')}",
       message_type = "error"
@@ -106,19 +106,32 @@ scpagwas_check_r <- function(verbose = TRUE) {
   invisible(TRUE)
 }
 
-scpagwas_namespace_available <- function() {
-  requireNamespace("scPagwas", quietly = TRUE)
+scpagwas_get_fun <- function(fun, error = TRUE) {
+  out <- tryCatch(
+    suppressWarnings(get_namespace_fun("scPagwas", fun)),
+    error = function(e) NULL
+  )
+  if (!is.function(out) && isTRUE(error)) {
+    log_message(
+      "Could not find {.pkg scPagwas} function {.val {fun}}",
+      message_type = "error"
+    )
+  }
+  out
 }
 
-scpagwas_find_runner <- function() {
+scpagwas_find_runner <- function(error = TRUE) {
   candidates <- c("scPagwas_main", "scPagwas")
   for (fun in candidates) {
-    runner <- tryCatch(get_namespace_fun("scPagwas", fun), error = function(e) NULL)
+    runner <- scpagwas_get_fun(fun, error = FALSE)
     if (is.function(runner)) {
       return(runner)
     }
   }
-  log_message("Could not find an upstream {.pkg scPagwas} runner", message_type = "error")
+  if (isTRUE(error)) {
+    log_message("Could not find an upstream {.pkg scPagwas} runner", message_type = "error")
+  }
+  NULL
 }
 
 scpagwas_filter_args <- function(fun, args) {
@@ -141,10 +154,10 @@ scpagwas_add_default_data_args <- function(fun, args) {
 }
 
 scpagwas_patch_get_assay_data <- function() {
-  if (!requireNamespace("scPagwas", quietly = TRUE)) {
+  ns <- tryCatch(asNamespace("scPagwas"), error = function(e) NULL)
+  if (is.null(ns)) {
     return(function() invisible(FALSE))
   }
-  ns <- asNamespace("scPagwas")
   imports_env <- parent.env(ns)
   if (!exists("GetAssayData", envir = imports_env, inherits = FALSE)) {
     return(function() invisible(FALSE))
@@ -340,31 +353,14 @@ scpagwas_abs_path <- function(path) {
 }
 
 scpagwas_cleanup_soar <- function() {
-  if (!requireNamespace("SOAR", quietly = TRUE)) {
-    return(invisible(FALSE))
-  }
-  ns <- asNamespace("SOAR")
-
-  rm_fun <- if (exists("RemoveAllObjects", envir = ns, inherits = FALSE)) {
-    get("RemoveAllObjects", envir = ns, inherits = FALSE)
-  } else {
-    NULL
-  }
+  rm_fun <- scpagwas_get_soar_fun("RemoveAllObjects")
   if (is.function(rm_fun)) {
     rm_fun()
     return(invisible(TRUE))
   }
 
-  objects_fun <- if (exists("Objects", envir = ns, inherits = FALSE)) {
-    get("Objects", envir = ns, inherits = FALSE)
-  } else {
-    NULL
-  }
-  remove_fun <- if (exists("Remove", envir = ns, inherits = FALSE)) {
-    get("Remove", envir = ns, inherits = FALSE)
-  } else {
-    NULL
-  }
+  objects_fun <- scpagwas_get_soar_fun("Objects")
+  remove_fun <- scpagwas_get_soar_fun("Remove")
   if (!is.function(objects_fun) || !is.function(remove_fun)) {
     return(invisible(TRUE))
   }
@@ -376,4 +372,11 @@ scpagwas_cleanup_soar <- function() {
 
   tryCatch(remove_fun(object_ids), error = function(e) NULL)
   invisible(TRUE)
+}
+
+scpagwas_get_soar_fun <- function(fun) {
+  tryCatch(
+    suppressWarnings(get_namespace_fun("SOAR", fun)),
+    error = function(e) NULL
+  )
 }
